@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user, require_admin
+from app.builtins import ensure_group_builtin_categories
 from app.models import Group, GroupMember, User
 from app.schemas import AddGroupMemberRequest, GroupCreate, GroupMemberOut, GroupOut
 from app.utils.avatar import build_avatar_data_url
@@ -49,10 +50,30 @@ def create_group(
     db.add(group)
     db.flush()
 
+    ensure_group_builtin_categories(db, group.id)
+
     db.add(GroupMember(group_id=group.id, user_id=current_user.id))
     db.commit()
     db.refresh(group)
     return GroupOut(id=group.id, name=group.name, member_limit=group.member_limit)
+
+
+@router.delete(
+    "/groups/{group_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_group(
+    group_id: int,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+) -> Response:
+    group = db.get(Group, group_id)
+    if group is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+    db.delete(group)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/groups/{group_id}/members", response_model=list[GroupMemberOut])

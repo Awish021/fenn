@@ -5,7 +5,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.models import Category, Group, GroupMember, Item, User
+from app.builtins import ensure_group_builtin_categories
+from app.models import CatalogItem, CatalogLike, Category, Group, GroupMember, Item, User
 from app.schemas import CategoryCreate, CategoryOut, CategoryUpdate, ItemCreate, ItemOut, ItemUpdate
 from app.utils.avatar import build_avatar_data_url
 from app.utils.text import sanitize_item_text
@@ -49,6 +50,11 @@ def _category_with_group(db: Session, category_id: int) -> Category:
     return category
 
 
+def _assert_category_editable(category: Category) -> None:
+    if category.builtin_key:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot modify built-in category")
+
+
 def _item_to_out(item: Item) -> ItemOut:
     member_ids = sorted(member.id for member in item.members)
     return ItemOut(
@@ -57,6 +63,8 @@ def _item_to_out(item: Item) -> ItemOut:
         owner_user_id=item.owner_user_id,
         text=item.text,
         member_ids=member_ids,
+        logo_url=item.logo_url,
+        subtitle=item.subtitle,
     )
 
 
@@ -67,8 +75,17 @@ def list_categories(
     current_user: User = Depends(get_current_user),
 ) -> list[CategoryOut]:
     _assert_group_access(db, group_id, current_user)
+    ensure_group_builtin_categories(db, group_id)
     categories = db.query(Category).filter(Category.group_id == group_id).order_by(Category.id.asc()).all()
-    return [CategoryOut(id=category.id, group_id=category.group_id, name=category.name) for category in categories]
+    return [
+        CategoryOut(
+            id=category.id,
+            group_id=category.group_id,
+            name=category.name,
+            builtin_key=category.builtin_key,
+        )
+        for category in categories
+    ]
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
@@ -82,7 +99,7 @@ def create_category(
     db.add(category)
     db.commit()
     db.refresh(category)
-    return CategoryOut(id=category.id, group_id=category.group_id, name=category.name)
+    return CategoryOut(id=category.id, group_id=category.group_id, name=category.name, builtin_key=category.builtin_key)
 
 
 @router.put("/categories/{category_id}", response_model=CategoryOut)
@@ -94,10 +111,11 @@ def update_category(
 ) -> CategoryOut:
     category = _category_with_group(db, category_id)
     _assert_group_access(db, category.group_id, current_user)
+    _assert_category_editable(category)
     category.name = payload.name
     db.commit()
     db.refresh(category)
-    return CategoryOut(id=category.id, group_id=category.group_id, name=category.name)
+    return CategoryOut(id=category.id, group_id=category.group_id, name=category.name, builtin_key=category.builtin_key)
 
 
 @router.delete(
@@ -112,6 +130,7 @@ def delete_category(
 ) -> Response:
     category = _category_with_group(db, category_id)
     _assert_group_access(db, category.group_id, current_user)
+    _assert_category_editable(category)
     db.delete(category)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -157,7 +176,13 @@ def create_item(
     if not text:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item text is empty after sanitization")
 
-    item = Item(category_id=category_id, owner_user_id=current_user.id, text=text)
+    item = Item(
+        category_id=category_id,
+        owner_user_id=current_user.id,
+        text=text,
+        logo_url=payload.logo_url,
+        subtitle=payload.subtitle,
+    )
     item.members = [member for member in valid_members if member.id in requested_member_ids]
     db.add(item)
     db.commit()
@@ -191,6 +216,8 @@ def update_item(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Item text is empty after sanitization")
 
     item.text = text
+    item.logo_url = payload.logo_url
+    item.subtitle = payload.subtitle
     item.members = [member for member in valid_members if member.id in requested_member_ids]
     db.commit()
     db.refresh(item)
@@ -208,7 +235,7 @@ def delete_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
     _assert_group_access(db, item.category.group_id, current_user)
 
-    if item.owner_user_id != current_user.id:
+    if not (current_user.is_admin or item.owner_user_id == current_user.id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own items")
 
     db.delete(item)
@@ -237,7 +264,8 @@ def category_venn(
     member_index = {member.id: index for index, member in enumerate(group_members)}
 
     sections: dict[int, dict] = {}
-    for mask in range(1, 16):
+    max_mask = max((1 << len(group_members)) - 1, 1)
+    for mask in range(1, max_mask + 1):
         section_members = []
         for idx, member in enumerate(group_members):
             if mask & (1 << idx):
@@ -250,21 +278,73 @@ def category_venn(
                 )
         sections[mask] = {"members": section_members, "items": []}
 
-    for item in category.items:
-        mask = 0
-        for member in item.members:
-            bit_index = member_index.get(member.id)
-            if bit_index is not None:
-                mask |= 1 << bit_index
-        if mask == 0:
-            continue
-        sections[mask]["items"].append(
-            {
-                "id": item.id,
-                "text": item.text,
-                "owner_user_id": item.owner_user_id,
-                "member_ids": sorted(member.id for member in item.members),
-            }
-        )
+    if category.builtin_key:
+        member_ids = [member.id for member in group_members]
+        if member_ids:
+            likes = (
+                db.query(CatalogLike)
+                .join(CatalogItem)
+                .options(joinedload(CatalogLike.catalog_item))
+                .filter(
+                    CatalogLike.user_id.in_(member_ids),
+                    CatalogItem.category_key == category.builtin_key,
+                )
+                .all()
+            )
+            item_masks: dict[int, int] = {}
+            item_refs: dict[int, CatalogItem] = {}
+            for like in likes:
+                bit_index = member_index.get(like.user_id)
+                if bit_index is None:
+                    continue
+                mask = item_masks.get(like.catalog_item_id, 0) | (1 << bit_index)
+                item_masks[like.catalog_item_id] = mask
+                item_refs[like.catalog_item_id] = like.catalog_item
 
-    return {str(mask): sections[mask] for mask in range(1, 16)}
+            for item_id, mask in item_masks.items():
+                if mask == 0:
+                    continue
+                catalog_item = item_refs.get(item_id)
+                if catalog_item is None:
+                    continue
+                matched_member_ids = sorted(
+                    member.id
+                    for member in group_members
+                    if (bit_index := member_index.get(member.id)) is not None and mask & (1 << bit_index)
+                )
+                if not matched_member_ids:
+                    continue
+                sections[mask]["items"].append(
+                    {
+                        "id": catalog_item.id,
+                        "text": catalog_item.title,
+                        "owner_user_id": None,
+                        "provider": catalog_item.provider,
+                        "provider_id": catalog_item.provider_id,
+                        "category_key": catalog_item.category_key,
+                        "member_ids": matched_member_ids,
+                        "logo_url": catalog_item.logo_url,
+                        "subtitle": catalog_item.subtitle,
+                    }
+                )
+    else:
+        for item in category.items:
+            mask = 0
+            for member in item.members:
+                bit_index = member_index.get(member.id)
+                if bit_index is not None:
+                    mask |= 1 << bit_index
+            if mask == 0:
+                continue
+            sections[mask]["items"].append(
+                {
+                    "id": item.id,
+                    "text": item.text,
+                    "owner_user_id": item.owner_user_id,
+                    "member_ids": sorted(member.id for member in item.members),
+                    "logo_url": item.logo_url,
+                    "subtitle": item.subtitle,
+                }
+            )
+
+    return {str(mask): sections[mask] for mask in range(1, max_mask + 1)}

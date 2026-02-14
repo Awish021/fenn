@@ -36,14 +36,20 @@ export interface CategoryOut {
   id: number;
   group_id: number;
   name: string;
+  builtin_key?: string | null;
 }
 
 export interface ItemOut {
   id: number;
   category_id: number;
-  owner_user_id: number;
+  owner_user_id: number | null;
   text: string;
   member_ids: number[];
+  logo_url?: string | null;
+  subtitle?: string | null;
+  provider?: string | null;
+  provider_id?: string | null;
+  category_key?: string | null;
 }
 
 export interface VennSection {
@@ -52,3 +58,21 @@ export interface VennSection {
 }
 
 export type VennResponse = Record<string, VennSection>;
+
+export interface CatalogItemOut {
+  category_key: string;
+  provider: string;
+  provider_id: string;
+  title: string;
+  subtitle?: string | null;
+  logo_url: string;
+  attribution?: string | null;
+  provider_url?: string | null;
+  popularity_score: number;
+  like_count: number;
+  liked_by_user: boolean;
+}
+
+export interface CatalogLikeResponse {
+  status: string;
+}

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 os.environ.setdefault("JWT_SECRET_KEY", "tests-secret-key")
 os.environ.setdefault("BOOTSTRAP_ADMIN_USERNAME", "test-admin")
 os.environ.setdefault("BOOTSTRAP_ADMIN_PASSWORD", "test-password")
+os.environ.setdefault("SKIP_CATALOG_SEED", "1")
 
 from app import database
 from app.auth import hash_password

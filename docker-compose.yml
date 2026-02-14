@@ -8,13 +8,15 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       DATABASE_URL: sqlite:////data/venndiagram.db
+      CATALOG_SEED_FILE: /opt/catalog/catalog_seed.realworld.jsonl
+      CATALOG_SEED_BATCH_SIZE: ${CATALOG_SEED_BATCH_SIZE:-5000}
     volumes:
       - backend-data:/data
     command:
       [
         "sh",
         "-c",
-        "alembic -c alembic.ini upgrade head && python alembic/bootstrap.py",
+        "alembic -c alembic.ini upgrade head && python alembic/bootstrap.py && python alembic/seed_catalog.py",
       ]
 
   backend:
@@ -28,6 +30,7 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
       DATABASE_URL: sqlite:////data/venndiagram.db
+      SKIP_CATALOG_SEED: ${SKIP_CATALOG_SEED:-1}
     healthcheck:
       test:
         [

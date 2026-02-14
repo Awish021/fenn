@@ -5,9 +5,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
+from app.routers.catalog import router as catalog_router
 from app.routers.categories import router as categories_router
 from app.routers.groups import router as groups_router
 from app.routers.users import router as users_router
+from app.startup import run_startup_tasks
 from app.config import ALLOWED_ORIGINS
 
 
@@ -25,7 +27,13 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(groups_router)
 app.include_router(categories_router)
+app.include_router(catalog_router)
 app.include_router(users_router)
+
+
+@app.on_event("startup")
+def on_startup() -> None:
+    run_startup_tasks()
 
 
 @app.get("/health")

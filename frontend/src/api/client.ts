@@ -1,5 +1,7 @@
 import { toSession, type AuthSession } from "./authStore";
 import type {
+  CatalogItemOut,
+  CatalogLikeResponse,
   CategoryOut,
   GroupMemberOut,
   GroupOut,
@@ -156,6 +158,10 @@ class ApiClient {
     return this.request<GroupOut>("/groups", "POST", { name, member_limit: memberLimit });
   }
 
+  deleteGroup(groupId: number): Promise<void> {
+    return this.request<void>(`/groups/${groupId}`, "DELETE");
+  }
+
   listGroupMembers(groupId: number): Promise<GroupMemberOut[]> {
     return this.request<GroupMemberOut[]>(`/groups/${groupId}/members`, "GET");
   }
@@ -216,6 +222,53 @@ class ApiClient {
 
   getVenn(categoryId: number): Promise<VennResponse> {
     return this.request<VennResponse>(`/categories/${categoryId}/venn`, "GET");
+  }
+
+  listCatalogItems(
+    categoryKey: string,
+    query?: string,
+    limit = 25
+  ): Promise<CatalogItemOut[]> {
+    const params = new URLSearchParams();
+    if (query) {
+      params.set("q", query);
+    }
+    params.set("limit", limit.toString());
+    const queryString = params.toString();
+    const path = queryString
+      ? `/catalog/${encodeURIComponent(categoryKey)}/items?${queryString}`
+      : `/catalog/${encodeURIComponent(categoryKey)}/items`;
+    return this.request<CatalogItemOut[]>(path, "GET");
+  }
+
+  likeCatalogItem(
+    categoryKey: string,
+    provider: string,
+    providerId: string
+  ): Promise<CatalogLikeResponse> {
+    const encodedProvider = encodeURIComponent(provider);
+    const encodedProviderId = encodeURIComponent(providerId);
+    return this.request<CatalogLikeResponse>(
+      `/catalog/${encodeURIComponent(
+        categoryKey
+      )}/items/${encodedProvider}/${encodedProviderId}/likes`,
+      "POST"
+    );
+  }
+
+  unlikeCatalogItem(
+    categoryKey: string,
+    provider: string,
+    providerId: string
+  ): Promise<CatalogLikeResponse> {
+    const encodedProvider = encodeURIComponent(provider);
+    const encodedProviderId = encodeURIComponent(providerId);
+    return this.request<CatalogLikeResponse>(
+      `/catalog/${encodeURIComponent(
+        categoryKey
+      )}/items/${encodedProvider}/${encodedProviderId}/likes`,
+      "DELETE"
+    );
   }
 
   getMe(): Promise<UserOut> {

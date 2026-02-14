@@ -14,6 +14,7 @@ export function GroupsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
+  const [deletingGroupIds, setDeletingGroupIds] = useState<number[]>([]);
 
   const [members, setMembers] = useState<GroupMemberOut[]>([]);
   const [users, setUsers] = useState<UserOut[]>([]);
@@ -100,6 +101,31 @@ export function GroupsPage() {
     }
   }
 
+  async function onDeleteGroup(groupId: number): Promise<void> {
+    if (!session?.claims.is_admin) {
+      return;
+    }
+    setError(null);
+    setDeletingGroupIds((prev) => [...prev, groupId]);
+    try {
+      await api.deleteGroup(groupId);
+      setGroups((prevGroups) => {
+        const nextGroups = prevGroups.filter((group) => group.id !== groupId);
+        setSelectedGroupId((current) => {
+          if (current !== groupId) {
+            return current;
+          }
+          return nextGroups[0]?.id ?? null;
+        });
+        return nextGroups;
+      });
+    } catch (err) {
+      setError(err instanceof HttpError ? err.message : "Failed to delete group");
+    } finally {
+      setDeletingGroupIds((prev) => prev.filter((id) => id !== groupId));
+    }
+  }
+
   const selectedGroup = groups.find((group) => group.id === selectedGroupId) ?? null;
   const availableUsers = useMemo(() => {
     const memberIds = new Set(members.map((member) => member.user_id));
@@ -159,12 +185,23 @@ export function GroupsPage() {
                 </button>
                 <div className="mt-3 flex gap-2">
                   <Link
-                  to={`/groups/${group.id}/categories`}
-                  data-testid={`group-open-${group.id}`}
-                  className="rounded-md border border-brand-200 px-2 py-1 text-xs font-semibold text-brand-800 hover:bg-brand-50"
-                >
-                  Open Categories
+                    to={`/groups/${group.id}/categories`}
+                    data-testid={`group-open-${group.id}`}
+                    className="rounded-md border border-brand-200 px-2 py-1 text-xs font-semibold text-brand-800 hover:bg-brand-50"
+                  >
+                    Open Categories
                   </Link>
+                  {session?.claims.is_admin && (
+                    <button
+                      type="button"
+                      onClick={() => void onDeleteGroup(group.id)}
+                      disabled={deletingGroupIds.includes(group.id)}
+                      data-testid={`group-delete-${group.id}`}
+                      className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      {deletingGroupIds.includes(group.id) ? "Deleting…" : "Delete"}
+                    </button>
+                  )}
                 </div>
               </li>
             ))}

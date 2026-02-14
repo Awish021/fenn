@@ -31,7 +31,7 @@ Vite listens on `http://localhost:3000` and proxies `/api` to the backend, so ru
 2. In another shell `cd e2e && npm install`
 3. `npm run test:install` (first time only) and `npm test`
 
-`docker compose up --build` now runs a one-shot `backend-migrate` service before backend startup so Alembic migrations and admin bootstrap complete before the API accepts requests.
+`docker compose up --build` now runs a one-shot `backend-migrate` service before backend startup so Alembic migrations, admin bootstrap, and bulk catalog seeding complete before the API accepts requests. The backend image build also prepares a large real-world catalog seed artifact.
 
 The e2e suites can be pointed at other hosts via `PLAYWRIGHT_BASE_URL` and `PLAYWRIGHT_BACKEND_URL`; credentials default to `test-admin` / `test-password` unless you override `PLAYWRIGHT_ADMIN_USERNAME` / `PLAYWRIGHT_ADMIN_PASSWORD`.
 

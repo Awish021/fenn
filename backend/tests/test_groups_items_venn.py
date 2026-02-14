@@ -62,6 +62,30 @@ def test_group_member_limit_enforced(client):
     assert user1_id > 0
 
 
+def test_admin_can_delete_group(client):
+    admin = login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    admin_token = admin["access_token"]
+
+    group = client.post(
+        "/groups",
+        json={"name": "Delete Group", "member_limit": 4},
+        headers=auth_header(admin_token),
+    )
+    assert group.status_code == 201
+    group_id = group.json()["id"]
+
+    delete_response = client.delete(
+        f"/groups/{group_id}",
+        headers=auth_header(admin_token),
+    )
+    assert delete_response.status_code == 204
+
+    remaining = client.get("/groups", headers=auth_header(admin_token))
+    assert remaining.status_code == 200
+    remaining_groups = remaining.json()
+    assert all(group["id"] != group_id for group in remaining_groups)
+
+
 def test_item_ownership_sanitization_and_venn(client):
     admin = login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
     admin_token = admin["access_token"]
@@ -114,6 +138,7 @@ def test_item_ownership_sanitization_and_venn(client):
         headers=auth_header(editor_token),
     )
     assert item_b.status_code == 201
+    item_b_body = item_b.json()
 
     item_c = client.post(
         f"/categories/{category_id}/items",
@@ -135,6 +160,12 @@ def test_item_ownership_sanitization_and_venn(client):
     )
     assert forbidden_delete.status_code == 403
 
+    admin_delete = client.delete(
+        f"/items/{item_b_body['id']}",
+        headers=auth_header(admin_token),
+    )
+    assert admin_delete.status_code == 204
+
     venn = client.get(f"/categories/{category_id}/venn", headers=auth_header(owner_token))
     assert venn.status_code == 200
     venn_body = venn.json()
@@ -142,5 +173,5 @@ def test_item_ownership_sanitization_and_venn(client):
     assert set(venn_body.keys()) == {str(i) for i in range(1, 16)}
     assert len(venn_body["3"]["items"]) == 1
     assert venn_body["3"]["items"][0]["id"] == item_a_body["id"]
-    assert len(venn_body["6"]["items"]) == 1
+    assert len(venn_body["6"]["items"]) == 0
     assert len(venn_body["15"]["items"]) == 1

@@ -69,16 +69,21 @@ class CategoryOut(BaseModel):
     id: int
     group_id: int
     name: str
+    builtin_key: str | None = None
 
 
 class ItemCreate(BaseModel):
     text: str
     member_ids: list[int]
+    logo_url: str | None = None
+    subtitle: str | None = None
 
 
 class ItemUpdate(BaseModel):
     text: str
     member_ids: list[int]
+    logo_url: str | None = None
+    subtitle: str | None = None
 
 
 class ItemOut(BaseModel):
@@ -87,3 +92,23 @@ class ItemOut(BaseModel):
     owner_user_id: int
     text: str
     member_ids: list[int]
+    logo_url: str | None = None
+    subtitle: str | None = None
+
+
+class CatalogItemOut(BaseModel):
+    category_key: str
+    provider: str
+    provider_id: str
+    title: str
+    subtitle: str | None = None
+    logo_url: str
+    attribution: str | None = None
+    provider_url: str | None = None
+    popularity_score: int = 0
+    like_count: int
+    liked_by_user: bool
+
+
+class CatalogLikeResponse(BaseModel):
+    status: str
