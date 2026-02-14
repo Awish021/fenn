@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import type { UserOut } from "../api/types";
 import { toSession, readStoredSession, storeSession, type AuthSession } from "../api/authStore";
 import { ApiClient } from "../api/client";
 
@@ -7,6 +8,8 @@ interface AuthContextValue {
   api: ApiClient;
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
+  currentUser: UserOut | null;
+  refreshCurrentUser: () => Promise<UserOut | null>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -14,6 +17,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<AuthSession | null>(() => readStoredSession());
   const sessionRef = useRef<AuthSession | null>(session);
+  const [currentUser, setCurrentUser] = useState<UserOut | null>(null);
 
   const persistSession = useCallback((nextSession: AuthSession | null) => {
     sessionRef.current = nextSession;
@@ -40,7 +44,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     persistSession(null);
   }
 
-  return <AuthContext.Provider value={{ session, api, login, logout }}>{children}</AuthContext.Provider>;
+  const refreshCurrentUser = useCallback(async (): Promise<UserOut | null> => {
+    if (!session) {
+      setCurrentUser(null);
+      return null;
+    }
+    try {
+      const me = await api.getMe();
+      setCurrentUser(me);
+      return me;
+    } catch {
+      setCurrentUser(null);
+      return null;
+    }
+  }, [api, session]);
+
+  useEffect(() => {
+    if (!session) {
+      setCurrentUser(null);
+      return;
+    }
+    let canceled = false;
+    void (async () => {
+      try {
+        const me = await api.getMe();
+        if (!canceled) {
+          setCurrentUser(me);
+        }
+      } catch {
+        if (!canceled) {
+          setCurrentUser(null);
+        }
+      }
+    })();
+    return () => {
+      canceled = true;
+    };
+  }, [api, session]);
+
+  return (
+    <AuthContext.Provider
+      value={{
+        session,
+        api,
+        login,
+        logout,
+        currentUser,
+        refreshCurrentUser,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthContextValue {

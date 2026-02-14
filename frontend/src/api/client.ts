@@ -68,6 +68,48 @@ class ApiClient {
     return (await response.json()) as T;
   }
 
+  private async requestMultipart<T>(
+    path: string,
+    method: Method,
+    formData: FormData,
+    allowRefresh = true,
+  ): Promise<T> {
+    const session = this.adapter.getSession();
+    const headers: Record<string, string> = {};
+    if (session?.accessToken) {
+      headers.Authorization = `Bearer ${session.accessToken}`;
+    }
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers,
+      body: formData,
+    });
+
+    if (
+      response.status === 401 &&
+      allowRefresh &&
+      session?.refreshToken &&
+      path !== "/auth/refresh"
+    ) {
+      const refreshedSession = await this.refreshSession(session.refreshToken);
+      if (!refreshedSession) {
+        throw new HttpError(401, "Session expired");
+      }
+      return this.requestMultipart<T>(path, method, formData, false);
+    }
+
+    if (!response.ok) {
+      const message = await this.readError(response);
+      throw new HttpError(response.status, message);
+    }
+
+    if (response.status === 204) {
+      return undefined as T;
+    }
+
+    return (await response.json()) as T;
+  }
+
   private async readError(response: Response): Promise<string> {
     try {
       const data = (await response.json()) as { detail?: string };
@@ -174,6 +216,20 @@ class ApiClient {
 
   getVenn(categoryId: number): Promise<VennResponse> {
     return this.request<VennResponse>(`/categories/${categoryId}/venn`, "GET");
+  }
+
+  getMe(): Promise<UserOut> {
+    return this.request<UserOut>("/users/me", "GET");
+  }
+
+  uploadAvatar(file: File): Promise<UserOut> {
+    const formData = new FormData();
+    formData.append("avatar", file);
+    return this.requestMultipart<UserOut>("/users/me/avatar", "POST", formData);
+  }
+
+  deleteAvatar(): Promise<UserOut> {
+    return this.request<UserOut>("/users/me/avatar", "DELETE");
   }
 }
 

@@ -29,3 +29,5 @@ REFRESH_TOKEN_DAYS = int(os.getenv("REFRESH_TOKEN_DAYS", "7"))
 BOOTSTRAP_ADMIN_USERNAME = _require_env("BOOTSTRAP_ADMIN_USERNAME")
 BOOTSTRAP_ADMIN_PASSWORD = _require_env("BOOTSTRAP_ADMIN_PASSWORD")
 ALLOWED_ORIGINS = _parse_origins(os.getenv("FRONTEND_ORIGIN", "http://localhost:3000"))
+MAX_AVATAR_SIZE_BYTES = 2 * 1024 * 1024
+ALLOWED_AVATAR_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}

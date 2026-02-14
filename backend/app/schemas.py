@@ -28,6 +28,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     is_admin: bool
+    avatar_data_url: str | None = None
 
 
 class ResetPasswordRequest(BaseModel):
@@ -52,6 +53,7 @@ class AddGroupMemberRequest(BaseModel):
 class GroupMemberOut(BaseModel):
     user_id: int
     username: str
+    avatar_data_url: str | None = None
 
 
 class CategoryCreate(BaseModel):

@@ -7,6 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user
 from app.models import Category, Group, GroupMember, Item, User
 from app.schemas import CategoryCreate, CategoryOut, CategoryUpdate, ItemCreate, ItemOut, ItemUpdate
+from app.utils.avatar import build_avatar_data_url
 from app.utils.text import sanitize_item_text
 
 router = APIRouter(tags=["categories"])
@@ -240,7 +241,13 @@ def category_venn(
         section_members = []
         for idx, member in enumerate(group_members):
             if mask & (1 << idx):
-                section_members.append({"id": member.id, "username": member.username})
+                section_members.append(
+                    {
+                        "id": member.id,
+                        "username": member.username,
+                        "avatar_data_url": build_avatar_data_url(member.avatar_blob, member.avatar_content_type),
+                    }
+                )
         sections[mask] = {"members": section_members, "items": []}
 
     for item in category.items:
