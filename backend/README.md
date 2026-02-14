@@ -20,6 +20,8 @@ python3 -m venv .venv
 source .venv/bin/activate
 python3 -m pip install --upgrade pip uv
 uv pip install -r requirements.txt
+alembic -c alembic.ini upgrade head
+python alembic/bootstrap.py
 uv run uvicorn app.main:app --reload
 ```
 
@@ -27,7 +29,7 @@ uv run uvicorn app.main:app --reload
 
 Default SQLite DB file: `backend/venndiagram.db`.
 
-The bootstrap admin user is created once using the provided environment credentials.
+The bootstrap admin user is created once by `python alembic/bootstrap.py` using the provided environment credentials.
 
 ## Run via Docker Compose
 

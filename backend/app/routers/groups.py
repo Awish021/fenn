@@ -7,6 +7,7 @@ from app.database import get_db
 from app.dependencies import get_current_user, require_admin
 from app.models import Group, GroupMember, User
 from app.schemas import AddGroupMemberRequest, GroupCreate, GroupMemberOut, GroupOut
+from app.utils.avatar import build_avatar_data_url
 
 router = APIRouter(tags=["groups"])
 
@@ -73,7 +74,14 @@ def list_group_members(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
 
     members = sorted(group.members, key=lambda gm: gm.id)
-    return [GroupMemberOut(user_id=member.user_id, username=member.user.username) for member in members]
+    return [
+        GroupMemberOut(
+            user_id=member.user_id,
+            username=member.user.username,
+            avatar_data_url=build_avatar_data_url(member.user.avatar_blob, member.user.avatar_content_type),
+        )
+        for member in members
+    ]
 
 
 @router.post("/groups/{group_id}/members", status_code=status.HTTP_201_CREATED)

@@ -17,6 +17,7 @@ export interface UserOut {
   id: number;
   username: string;
   is_admin: boolean;
+  avatar_data_url?: string;
 }
 
 export interface GroupOut {
@@ -28,6 +29,7 @@ export interface GroupOut {
 export interface GroupMemberOut {
   user_id: number;
   username: string;
+  avatar_data_url?: string;
 }
 
 export interface CategoryOut {
@@ -45,7 +47,7 @@ export interface ItemOut {
 }
 
 export interface VennSection {
-  members: Array<{ id: number; username: string }>;
+  members: Array<{ id: number; username: string; avatar_data_url?: string }>;
   items: ItemOut[];
 }
 

@@ -8,6 +8,7 @@ from app.database import get_db
 from app.dependencies import require_admin
 from app.models import User
 from app.schemas import ResetPasswordRequest, UserCreate, UserOut
+from app.utils.serializers import user_to_out
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -30,7 +31,7 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
-    return UserOut(id=user.id, username=user.username, is_admin=user.is_admin)
+    return user_to_out(user)
 
 
 @router.get("/users", response_model=list[UserOut])
@@ -39,7 +40,7 @@ def list_users(
     _admin: User = Depends(require_admin),
 ) -> list[UserOut]:
     users = db.query(User).order_by(User.id.asc()).all()
-    return [UserOut(id=user.id, username=user.username, is_admin=user.is_admin) for user in users]
+    return [user_to_out(user) for user in users]
 
 
 @router.post(

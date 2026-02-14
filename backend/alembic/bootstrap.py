@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from app import database
 from app.auth import hash_password
 from app.config import BOOTSTRAP_ADMIN_PASSWORD, BOOTSTRAP_ADMIN_USERNAME
-from app.models import Base, User
-
+from app.models import User
 
 logger = logging.getLogger(__name__)
-
-
-def init_db(engine) -> None:
-    Base.metadata.create_all(bind=engine)
 
 
 def bootstrap_admin_user(db: Session) -> User:
@@ -31,3 +33,20 @@ def bootstrap_admin_user(db: Session) -> User:
     db.commit()
     db.refresh(user)
     return user
+
+
+def main() -> None:
+    session_local = database.SessionLocal
+    if session_local is None:
+        raise RuntimeError("Database session is not configured")
+
+    db = session_local()
+    try:
+        bootstrap_admin_user(db)
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    main()

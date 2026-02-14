@@ -12,7 +12,10 @@ Fenn is a lightweight overlap-mapping app with three coordinated surfaces:
 1. `cd backend`
 2. Copy `backend/.env.example` to `.env` and supply real secrets (see the backend README for the list).
 3. `python3 -m venv .venv && source .venv/bin/activate`
-4. `pip install -r requirements.txt && uvicorn app.main:app --reload`
+4. `pip install -r requirements.txt`
+5. `alembic -c alembic.ini upgrade head`
+6. `python alembic/bootstrap.py`
+7. `uvicorn app.main:app --reload`
 
 The backend README covers Docker Compose, database persistence, and additional test commands such as `pytest -q`.
 
