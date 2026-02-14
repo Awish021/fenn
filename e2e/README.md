@@ -3,7 +3,7 @@
 These Playwright suites drive the running stack at `http://localhost:3000` and expect the backend to be reachable at `http://localhost:8000` (the compose file makes that happen automatically).
 
 ## Setup
-1. From the repo root run `docker compose up --build` and keep the services running while you test.
+1. From the repo root run `docker compose up --build` and keep the services running while you test (Compose runs `backend-migrate` first, then starts `backend`/`frontend`).
 2. In a new shell `cd e2e` and install the dependencies: `npm install`.
 3. (First time only) run `npm run test:install` to download the Playwright browsers.
 

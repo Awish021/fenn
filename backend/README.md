@@ -35,10 +35,18 @@ The bootstrap admin user is created once by `python alembic/bootstrap.py` using 
 
 ```bash
 cd ..
-docker-compose up --build
+docker compose up --build
 ```
 
-The backend service now exposes `/health` for the healthcheck, receives the required secret vars from the `.env` placed alongside `docker-compose.yml`, and persists the SQLite file in the `backend-data` named volume so data survives container restarts.
+Compose starts a one-shot `backend-migrate` service first, which runs `alembic upgrade head` and `python alembic/bootstrap.py`. After that completes successfully, the `backend` service starts and exposes `/health` for the healthcheck.
+
+The backend receives required secret vars from the `.env` placed alongside `docker-compose.yml`, and persists the SQLite file in the `backend-data` named volume so data survives container restarts.
+
+To rerun migrations/bootstrap manually:
+
+```bash
+docker compose run --rm backend-migrate
+```
 
 ## Run tests
 
