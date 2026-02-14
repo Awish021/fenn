@@ -5,13 +5,15 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
 from app.dependencies import get_current_user
-from app.builtins import ensure_group_builtin_categories
+from app.builtins import BUILTIN_CATEGORIES
 from app.models import CatalogItem, CatalogLike, Category, Group, GroupMember, Item, User
 from app.schemas import CategoryCreate, CategoryOut, CategoryUpdate, ItemCreate, ItemOut, ItemUpdate
 from app.utils.avatar import build_avatar_data_url
 from app.utils.text import sanitize_item_text
 
 router = APIRouter(tags=["categories"])
+
+BUILTIN_KEYS = {builtin.key for builtin in BUILTIN_CATEGORIES}
 
 
 def _is_group_member(db: Session, group_id: int, user_id: int) -> bool:
@@ -70,22 +72,105 @@ def _item_to_out(item: Item) -> ItemOut:
 
 @router.get("/categories", response_model=list[CategoryOut])
 def list_categories(
-    group_id: int = Query(...),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    _group_id: int | None = Query(None),
+    _db: Session = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> list[CategoryOut]:
-    _assert_group_access(db, group_id, current_user)
-    ensure_group_builtin_categories(db, group_id)
-    categories = db.query(Category).filter(Category.group_id == group_id).order_by(Category.id.asc()).all()
     return [
         CategoryOut(
-            id=category.id,
-            group_id=category.group_id,
-            name=category.name,
-            builtin_key=category.builtin_key,
+            id=index + 1,
+            group_id=None,
+            name=builtin.name,
+            builtin_key=builtin.key,
         )
-        for category in categories
+        for index, builtin in enumerate(BUILTIN_CATEGORIES)
     ]
+
+
+def _build_group_builtin_venn(db: Session, group_id: int, category_key: str, current_user: User) -> dict:
+    group = _assert_group_access(db, group_id, current_user)
+    if category_key not in BUILTIN_KEYS:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Category not found")
+
+    group_members = _member_users_for_group(db, group.id)
+    group_members = group_members[:4]
+    member_index = {member.id: index for index, member in enumerate(group_members)}
+
+    sections: dict[int, dict] = {}
+    max_mask = max((1 << len(group_members)) - 1, 1)
+    for mask in range(1, max_mask + 1):
+        section_members = []
+        for idx, member in enumerate(group_members):
+            if mask & (1 << idx):
+                section_members.append(
+                    {
+                        "id": member.id,
+                        "username": member.username,
+                        "avatar_data_url": build_avatar_data_url(member.avatar_blob, member.avatar_content_type),
+                    }
+                )
+        sections[mask] = {"members": section_members, "items": []}
+
+    member_ids = [member.id for member in group_members]
+    if member_ids:
+        likes = (
+            db.query(CatalogLike)
+            .join(CatalogItem)
+            .options(joinedload(CatalogLike.catalog_item))
+            .filter(
+                CatalogLike.user_id.in_(member_ids),
+                CatalogItem.category_key == category_key,
+            )
+            .all()
+        )
+        item_masks: dict[int, int] = {}
+        item_refs: dict[int, CatalogItem] = {}
+        for like in likes:
+            bit_index = member_index.get(like.user_id)
+            if bit_index is None:
+                continue
+            mask = item_masks.get(like.catalog_item_id, 0) | (1 << bit_index)
+            item_masks[like.catalog_item_id] = mask
+            item_refs[like.catalog_item_id] = like.catalog_item
+
+        for item_id, mask in item_masks.items():
+            if mask == 0:
+                continue
+            catalog_item = item_refs.get(item_id)
+            if catalog_item is None:
+                continue
+            matched_member_ids = sorted(
+                member.id
+                for member in group_members
+                if member.id in member_index and mask & (1 << member_index[member.id])
+            )
+            if not matched_member_ids:
+                continue
+            sections[mask]["items"].append(
+                {
+                    "id": catalog_item.id,
+                    "text": catalog_item.title,
+                    "owner_user_id": None,
+                    "provider": catalog_item.provider,
+                    "provider_id": catalog_item.provider_id,
+                    "category_key": catalog_item.category_key,
+                    "member_ids": matched_member_ids,
+                    "logo_url": catalog_item.logo_url,
+                    "subtitle": catalog_item.subtitle,
+                }
+            )
+
+    return {str(mask): sections[mask] for mask in range(1, max_mask + 1)}
+
+
+@router.get("/groups/{group_id}/venn/{category_key}")
+def group_category_venn(
+    group_id: int,
+    category_key: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    return _build_group_builtin_venn(db=db, group_id=group_id, category_key=category_key, current_user=current_user)
 
 
 @router.post("/categories", response_model=CategoryOut, status_code=status.HTTP_201_CREATED)
@@ -279,54 +364,12 @@ def category_venn(
         sections[mask] = {"members": section_members, "items": []}
 
     if category.builtin_key:
-        member_ids = [member.id for member in group_members]
-        if member_ids:
-            likes = (
-                db.query(CatalogLike)
-                .join(CatalogItem)
-                .options(joinedload(CatalogLike.catalog_item))
-                .filter(
-                    CatalogLike.user_id.in_(member_ids),
-                    CatalogItem.category_key == category.builtin_key,
-                )
-                .all()
-            )
-            item_masks: dict[int, int] = {}
-            item_refs: dict[int, CatalogItem] = {}
-            for like in likes:
-                bit_index = member_index.get(like.user_id)
-                if bit_index is None:
-                    continue
-                mask = item_masks.get(like.catalog_item_id, 0) | (1 << bit_index)
-                item_masks[like.catalog_item_id] = mask
-                item_refs[like.catalog_item_id] = like.catalog_item
-
-            for item_id, mask in item_masks.items():
-                if mask == 0:
-                    continue
-                catalog_item = item_refs.get(item_id)
-                if catalog_item is None:
-                    continue
-                matched_member_ids = sorted(
-                    member.id
-                    for member in group_members
-                    if (bit_index := member_index.get(member.id)) is not None and mask & (1 << bit_index)
-                )
-                if not matched_member_ids:
-                    continue
-                sections[mask]["items"].append(
-                    {
-                        "id": catalog_item.id,
-                        "text": catalog_item.title,
-                        "owner_user_id": None,
-                        "provider": catalog_item.provider,
-                        "provider_id": catalog_item.provider_id,
-                        "category_key": catalog_item.category_key,
-                        "member_ids": matched_member_ids,
-                        "logo_url": catalog_item.logo_url,
-                        "subtitle": catalog_item.subtitle,
-                    }
-                )
+        return _build_group_builtin_venn(
+            db=db,
+            group_id=category.group_id,
+            category_key=category.builtin_key,
+            current_user=current_user,
+        )
     else:
         for item in category.items:
             mask = 0

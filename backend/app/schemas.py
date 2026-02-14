@@ -67,7 +67,7 @@ class CategoryUpdate(BaseModel):
 
 class CategoryOut(BaseModel):
     id: int
-    group_id: int
+    group_id: int | None = None
     name: str
     builtin_key: str | None = None
 

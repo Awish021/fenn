@@ -2,6 +2,9 @@ services:
   backend-migrate:
     build:
       context: ./backend
+      args:
+        CATALOG_MUSIC_LIMIT: ${CATALOG_MUSIC_LIMIT:-50000}
+        CATALOG_MUSIC_ISRAELI_MIN: ${CATALOG_MUSIC_ISRAELI_MIN:-1500}
     environment:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY}
       BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME}
@@ -22,6 +25,9 @@ services:
   backend:
     build:
       context: ./backend
+      args:
+        CATALOG_MUSIC_LIMIT: ${CATALOG_MUSIC_LIMIT:-50000}
+        CATALOG_MUSIC_ISRAELI_MIN: ${CATALOG_MUSIC_ISRAELI_MIN:-1500}
     ports:
       - "8000:8000"
     environment:
@@ -77,6 +83,13 @@ services:
     volumes:
       - ./frontend:/app
       - frontend-node-modules:/app/node_modules
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    depends_on:
+      - frontend
+    command: tunnel --no-autoupdate --url http://frontend:3000
+    restart: unless-stopped
 
 volumes:
   backend-data:

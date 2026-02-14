@@ -34,7 +34,7 @@ export interface GroupMemberOut {
 
 export interface CategoryOut {
   id: number;
-  group_id: number;
+  group_id?: number | null;
   name: string;
   builtin_key?: string | null;
 }

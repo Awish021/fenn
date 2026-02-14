@@ -72,6 +72,7 @@ const svgLogoSize = 24;
 const svgLogoGap = 6;
 const avatarChipClassName = "flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold text-slate-900";
 const MAX_CHIPS_PER_SECTION = 4;
+const CATALOG_PAGE_SIZE = 25;
 const ALL_MASKS = Array.from({ length: 15 }, (_, idx) => idx + 1);
 const BUILTIN_LABELS: Record<string, string> = {
   music: "Music",
@@ -120,10 +121,13 @@ function sectionMembers(venn: VennResponse, mask: number): string {
 
 export function VennPage() {
   const api = useApi();
-  const { categoryId: categoryIdParam } = useParams();
+  const { groupId: groupIdParam, categoryKey, categoryId: categoryIdParam } = useParams();
   const [searchParams] = useSearchParams();
-  const groupId = searchParams.get("groupId") ?? "";
+  const routeGroupId = Number(groupIdParam);
+  const queryGroupId = Number(searchParams.get("groupId") ?? "");
+  const groupId = routeGroupId || queryGroupId;
   const categoryId = Number(categoryIdParam);
+  const isGroupKeyRoute = Boolean(routeGroupId && categoryKey);
   const isMobile = useIsMobile();
   const { session } = useAuth();
 
@@ -135,33 +139,40 @@ export function VennPage() {
   const [deletingItemIds, setDeletingItemIds] = useState<number[]>([]);
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogSearchTerm, setCatalogSearchTerm] = useState("");
+  const [catalogPage, setCatalogPage] = useState(1);
   const [catalogResults, setCatalogResults] = useState<CatalogItemOut[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [catalogActionInFlight, setCatalogActionInFlight] = useState<string | null>(null);
-  const [builtinKey, setBuiltinKey] = useState<string | null>(null);
   const catalogDebounceTimerRef = useRef<number | null>(null);
   const catalogRequestIdRef = useRef(0);
 
+  const builtinKey = isGroupKeyRoute && categoryKey ? categoryKey : null;
+
   const refresh = useCallback(async () => {
+    if (!isGroupKeyRoute && !categoryId) {
+      return;
+    }
     setError(null);
     setLoading(true);
     try {
-      const data = await api.getVenn(categoryId);
+      const data = isGroupKeyRoute && categoryKey
+        ? await api.getGroupVenn(groupId, categoryKey)
+        : await api.getVenn(categoryId);
       setVenn(data);
     } catch (err) {
       setError(err instanceof HttpError ? err.message : "Failed to load venn");
     } finally {
       setLoading(false);
     }
-  }, [api, categoryId]);
+  }, [api, categoryId, categoryKey, groupId, isGroupKeyRoute]);
 
   useEffect(() => {
-    if (!categoryId) {
+    if (!isGroupKeyRoute && !categoryId) {
       return;
     }
     void refresh();
-  }, [categoryId, refresh]);
+  }, [categoryId, isGroupKeyRoute, refresh]);
 
   useEffect(() => {
     if (!groupId) {
@@ -175,12 +186,7 @@ export function VennPage() {
         if (!active) {
           return;
         }
-        const numericGroupId = Number(groupId);
-        if (!numericGroupId) {
-          setGroupMemberLimit(null);
-          return;
-        }
-        const group = groups.find((item) => item.id === numericGroupId);
+        const group = groups.find((item) => item.id === groupId);
         setGroupMemberLimit(group?.member_limit ?? null);
       })
       .catch(() => {
@@ -192,36 +198,6 @@ export function VennPage() {
       active = false;
     };
   }, [api, groupId]);
-
-  useEffect(() => {
-    if (!groupId || !categoryId) {
-      setBuiltinKey(null);
-      return;
-    }
-    let active = true;
-    const numericGroupId = Number(groupId);
-    if (!numericGroupId) {
-      setBuiltinKey(null);
-      return;
-    }
-    api
-      .listCategories(numericGroupId)
-      .then((categories) => {
-        if (!active) {
-          return;
-        }
-        const category = categories.find((item) => item.id === categoryId);
-        setBuiltinKey(category?.builtin_key ?? null);
-      })
-      .catch(() => {
-        if (active) {
-          setBuiltinKey(null);
-        }
-      });
-    return () => {
-      active = false;
-    };
-  }, [api, categoryId, groupId]);
 
   const handleDeleteItem = useCallback(
     async (item: (VennResponse[string]["items"])[number]) => {
@@ -252,7 +228,7 @@ export function VennPage() {
     setCatalogLoading(true);
     setCatalogError(null);
     try {
-      const results = await api.listCatalogItems(builtinKey, catalogSearchTerm);
+      const results = await api.listCatalogItems(builtinKey, catalogSearchTerm, catalogPage, CATALOG_PAGE_SIZE);
       if (requestId === catalogRequestIdRef.current) {
         setCatalogResults(results);
       }
@@ -265,17 +241,22 @@ export function VennPage() {
         setCatalogLoading(false);
       }
     }
-  }, [api, builtinKey, catalogSearchTerm]);
+  }, [api, builtinKey, catalogPage, catalogSearchTerm]);
 
   useEffect(() => {
     void fetchCatalogItems();
   }, [fetchCatalogItems]);
 
   useEffect(() => {
+    setCatalogPage(1);
+  }, [builtinKey]);
+
+  useEffect(() => {
     if (catalogDebounceTimerRef.current) {
       clearTimeout(catalogDebounceTimerRef.current);
     }
     const timer = window.setTimeout(() => {
+      setCatalogPage(1);
       setCatalogSearchTerm(catalogQuery);
       catalogDebounceTimerRef.current = null;
     }, 250);
@@ -294,6 +275,7 @@ export function VennPage() {
       clearTimeout(catalogDebounceTimerRef.current);
       catalogDebounceTimerRef.current = null;
     }
+    setCatalogPage(1);
     setCatalogSearchTerm(catalogQuery);
   }
 
@@ -367,9 +349,11 @@ export function VennPage() {
 
   const categoriesLink = groupId ? `/groups/${groupId}/categories` : "/groups";
   const catalogLabel = builtinKey ? BUILTIN_LABELS[builtinKey] ?? builtinKey : null;
+  const canGoToPreviousCatalogPage = catalogPage > 1;
+  const canGoToNextCatalogPage = catalogResults.length === CATALOG_PAGE_SIZE;
 
-  if (!categoryId) {
-    return <p className="text-sm text-rose-700">Invalid category.</p>;
+  if (!isGroupKeyRoute && !categoryId) {
+    return <p className="text-sm text-rose-700">Invalid group or category lens.</p>;
   }
 
   return (
@@ -792,6 +776,27 @@ export function VennPage() {
                 </article>
               ))
             )}
+            <div className="flex items-center justify-between pt-2">
+              <p className="text-xs text-slate-500">Page {catalogPage}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCatalogPage((prev) => Math.max(1, prev - 1))}
+                  disabled={!canGoToPreviousCatalogPage || catalogLoading}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCatalogPage((prev) => prev + 1)}
+                  disabled={!canGoToNextCatalogPage || catalogLoading}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </div>
         </section>
       )}

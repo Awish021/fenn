@@ -43,7 +43,7 @@ docker compose up --build
 
 Compose starts a one-shot `backend-migrate` service first, which runs `alembic upgrade head`, `python alembic/bootstrap.py`, and `python alembic/seed_catalog.py`. After that completes successfully, the `backend` service starts and exposes `/health` for the healthcheck.
 
-During backend image build, Docker downloads real-world catalog sources (IMDb titles/ratings + Wikidata hobbies) and materializes `/opt/catalog/catalog_seed.realworld.jsonl` inside the image. The `backend-migrate` service then bulk-loads that file with `python alembic/seed_catalog.py`, so the SQLite catalog is already rich before the API boots.
+During backend image build, Docker downloads real-world catalog sources (IMDb titles/ratings + Wikidata hobbies/music) and materializes `/opt/catalog/catalog_seed.realworld.jsonl` inside the image. The `backend-migrate` service then bulk-loads that file with `python alembic/seed_catalog.py`, so the SQLite catalog is already rich before the API boots. The builder also reserves a baseline portion of the music catalog for Israeli artists via `CATALOG_MUSIC_ISRAELI_MIN` (default `1500`).
 
 By default Compose sets `SKIP_CATALOG_SEED=1` for the API service to avoid reseeding on every startup; built-in categories are still ensured on startup.
 

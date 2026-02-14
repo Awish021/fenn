@@ -15,6 +15,7 @@ export function AppLayout() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const avatarLabel = currentUser?.username ?? session?.claims.username ?? "user";
+  const hasAvatar = Boolean(currentUser?.avatar_data_url);
 
   async function handleAvatarChange(event: ChangeEvent<HTMLInputElement>): Promise<void> {
     const file = event.target.files?.[0];
@@ -32,6 +33,9 @@ export function AppLayout() {
   }
 
   async function handleAvatarRemove(): Promise<void> {
+    if (!hasAvatar) {
+      return;
+    }
     try {
       await api.deleteAvatar();
       await refreshCurrentUser();
@@ -95,7 +99,8 @@ export function AppLayout() {
                 <button
                   type="button"
                   onClick={handleAvatarRemove}
-                  className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400"
+                  disabled={!hasAvatar}
+                  className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Remove avatar
                 </button>

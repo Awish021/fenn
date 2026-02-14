@@ -88,12 +88,10 @@ def test_music_catalog_listing_and_likes(client):
     )
     assert add_user2.status_code == 201
 
-    categories = client.get(f"/categories?group_id={group_id}", headers=auth_header(user1_token))
+    categories = client.get("/categories", headers=auth_header(user1_token))
     assert categories.status_code == 200
     category_list = categories.json()
     assert any(category.get("builtin_key") == "music" for category in category_list)
-    music_category = next(category for category in category_list if category.get("builtin_key") == "music")
-    category_id = music_category["id"]
 
     catalog_shared = insert_catalog_item(
         "music",
@@ -136,7 +134,7 @@ def test_music_catalog_listing_and_likes(client):
     assert orbit_entry["liked_by_user"] is True
     assert orbit_entry["like_count"] == 2
 
-    venn = client.get(f"/categories/{category_id}/venn", headers=auth_header(user1_token))
+    venn = client.get(f"/groups/{group_id}/venn/music", headers=auth_header(user1_token))
     assert venn.status_code == 200
     venn_body = venn.json()
 
@@ -161,6 +159,62 @@ def test_music_catalog_listing_and_likes(client):
     assert band_list_after.status_code == 200
     solo_entry = next(item for item in band_list_after.json() if item["provider_id"] == catalog_user1.provider_id)
     assert solo_entry["liked_by_user"] is False
+
+
+def test_group_venn_requires_group_membership(client):
+    admin = login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    admin_token = admin["access_token"]
+
+    create_user_as_admin(client, admin_token, "owner-user", "owner-pass")
+    create_user_as_admin(client, admin_token, "outsider-user", "outsider-pass")
+
+    owner_token = login(client, "owner-user", "owner-pass")["access_token"]
+    outsider_token = login(client, "outsider-user", "outsider-pass")["access_token"]
+
+    group = client.post(
+        "/groups",
+        json={"name": "Private Group", "member_limit": 4},
+        headers=auth_header(owner_token),
+    )
+    assert group.status_code == 201
+    group_id = group.json()["id"]
+
+    forbidden = client.get(f"/groups/{group_id}/venn/music", headers=auth_header(outsider_token))
+    assert forbidden.status_code == 403
+
+
+def test_group_venn_rejects_unknown_category_key(client):
+    admin = login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    admin_token = admin["access_token"]
+
+    create_user_as_admin(client, admin_token, "lens-user", "lens-pass")
+    user_token = login(client, "lens-user", "lens-pass")["access_token"]
+
+    group = client.post(
+        "/groups",
+        json={"name": "Known Keys", "member_limit": 4},
+        headers=auth_header(user_token),
+    )
+    assert group.status_code == 201
+    group_id = group.json()["id"]
+
+    missing = client.get(f"/groups/{group_id}/venn/not_a_builtin", headers=auth_header(user_token))
+    assert missing.status_code == 404
+
+
+def test_categories_listing_ignores_group_id(client):
+    admin = login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    admin_token = admin["access_token"]
+
+    no_filter = client.get("/categories", headers=auth_header(admin_token))
+    assert no_filter.status_code == 200
+
+    with_filter = client.get("/categories?group_id=123456", headers=auth_header(admin_token))
+    assert with_filter.status_code == 200
+
+    no_filter_keys = [category["builtin_key"] for category in no_filter.json()]
+    with_filter_keys = [category["builtin_key"] for category in with_filter.json()]
+    assert no_filter_keys == with_filter_keys
 
 
 def test_catalog_search_prioritizes_popularity(client):
@@ -194,3 +248,29 @@ def test_catalog_search_prioritizes_popularity(client):
     assert len(filtered) == 2
     assert filtered[0]["provider_id"] == popular.provider_id
     assert filtered[0]["popularity_score"] == popular.popularity_score
+
+
+def test_catalog_listing_supports_pagination(client):
+    admin = login(client, ADMIN_USERNAME, ADMIN_PASSWORD)
+    admin_token = admin["access_token"]
+
+    for index in range(3):
+        insert_catalog_item(
+            "music",
+            "test",
+            f"paging-item-{index}",
+            f"Paging Result {index + 1}",
+            "Pagination test entry",
+            "https://cdn.example.com/paging.png",
+            popularity_score=100 - index,
+        )
+
+    page_one = client.get("/catalog/music/items?q=Paging%20Result&page=1&limit=2", headers=auth_header(admin_token))
+    assert page_one.status_code == 200
+    page_one_ids = [item["provider_id"] for item in page_one.json() if item["provider_id"].startswith("paging-item-")]
+    assert page_one_ids == ["paging-item-0", "paging-item-1"]
+
+    page_two = client.get("/catalog/music/items?q=Paging%20Result&page=2&limit=2", headers=auth_header(admin_token))
+    assert page_two.status_code == 200
+    page_two_ids = [item["provider_id"] for item in page_two.json() if item["provider_id"].startswith("paging-item-")]
+    assert page_two_ids == ["paging-item-2"]

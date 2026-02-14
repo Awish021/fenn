@@ -9,7 +9,8 @@ COPY tools ./tools
 ARG CATALOG_MIN_VOTES=40
 ARG CATALOG_MOVIES_LIMIT=140000
 ARG CATALOG_TV_LIMIT=110000
-ARG CATALOG_MUSIC_LIMIT=15000
+ARG CATALOG_MUSIC_LIMIT=50000
+ARG CATALOG_MUSIC_ISRAELI_MIN=1500
 ARG CATALOG_HOBBIES_LIMIT=8000
 
 RUN --mount=type=cache,target=/build/.cache/catalog-build \
@@ -21,6 +22,7 @@ RUN --mount=type=cache,target=/build/.cache/catalog-build \
     --movies-limit ${CATALOG_MOVIES_LIMIT} \
     --tv-limit ${CATALOG_TV_LIMIT} \
     --music-limit ${CATALOG_MUSIC_LIMIT} \
+    --music-israeli-min ${CATALOG_MUSIC_ISRAELI_MIN} \
     --hobbies-limit ${CATALOG_HOBBIES_LIMIT}
 
 FROM python:3.14-slim

@@ -261,6 +261,7 @@ def _fetch_wikidata_subclass_entries(
     subtitle_prefix: str,
     relation_path: str = "wdt:P279*",
     chunk_size: int = 2000,
+    extra_triples: tuple[str, ...] = (),
 ) -> list[dict[str, Any]]:
     if limit <= 0:
         return []
@@ -271,18 +272,31 @@ def _fetch_wikidata_subclass_entries(
     offset = 0
     while len(entries) < limit:
         page_size = min(chunk_size, limit - len(entries))
+        extra_filters = "".join(f"\n          {triple}" for triple in extra_triples)
         query = f"""
         SELECT ?item ?itemLabel ?itemDescription ?sitelinks WHERE {{
           ?item {relation_path} wd:{root_qid} .
+          {extra_filters}
           ?item wikibase:sitelinks ?sitelinks .
           SERVICE wikibase:label {{ bd:serviceParam wikibase:language \"en\". }}
         }}
+        ORDER BY DESC(?sitelinks) ?item
         LIMIT {int(page_size)}
         OFFSET {int(offset)}
         """
         params = urlencode({"query": query, "format": "json"})
         url = f"{WIKIDATA_ENDPOINT}?{params}"
-        payload = _read_json_response(url, timeout=240)
+        try:
+            payload = _read_json_response(url, timeout=240)
+        except Exception:
+            logger.warning(
+                "Wikidata request failed for %s at offset %d; returning %d partial entries",
+                root_qid,
+                offset,
+                len(entries),
+                exc_info=True,
+            )
+            break
 
         bindings = payload.get("results", {}).get("bindings", [])
         if not bindings:
@@ -369,7 +383,7 @@ def _fetch_music_from_wikidata(limit: int) -> list[dict[str, Any]]:
         limit=limit,
         subtitle_prefix="Music",
         relation_path="wdt:P31/wdt:P279*",
-        chunk_size=1000,
+        chunk_size=500,
     )
     logger.info("Loaded %d music entries from Wikidata", len(entries))
     return entries
@@ -382,10 +396,101 @@ def _fetch_musicians_from_wikidata(limit: int) -> list[dict[str, Any]]:
         limit=limit,
         subtitle_prefix="Musician",
         relation_path="wdt:P106/wdt:P279*",
-        chunk_size=1000,
+        chunk_size=500,
     )
     logger.info("Loaded %d musician entries from Wikidata", len(entries))
     return entries
+
+
+def _fetch_musical_groups_from_wikidata(limit: int) -> list[dict[str, Any]]:
+    entries = _fetch_wikidata_subclass_entries(
+        root_qid="Q2088357",
+        category_key="music",
+        limit=limit,
+        subtitle_prefix="Band",
+        relation_path="wdt:P31/wdt:P279*",
+        chunk_size=500,
+    )
+    logger.info("Loaded %d musical group entries from Wikidata", len(entries))
+    return entries
+
+
+def _fetch_israeli_musicians_from_wikidata(limit: int) -> list[dict[str, Any]]:
+    entries = _fetch_wikidata_subclass_entries(
+        root_qid="Q639669",
+        category_key="music",
+        limit=limit,
+        subtitle_prefix="Musician from Israel",
+        relation_path="wdt:P106/wdt:P279*",
+        chunk_size=1000,
+        extra_triples=("?item wdt:P27 wd:Q801 .",),
+    )
+    logger.info("Loaded %d Israeli musician entries from Wikidata", len(entries))
+    return entries
+
+
+def _sort_by_popularity(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        entries,
+        key=lambda entry: (
+            int(entry.get("popularity_score", 0)),
+            str(entry.get("provider", "")),
+            str(entry.get("provider_id", "")),
+        ),
+        reverse=True,
+    )
+
+
+def _build_music_catalog_entries(
+    imdb_entries: list[dict[str, Any]],
+    *,
+    music_limit: int,
+    music_israeli_min: int,
+) -> list[dict[str, Any]]:
+    if music_limit <= 0:
+        return []
+
+    imdb_music = [entry for entry in imdb_entries if entry.get("category_key") == "music"]
+    reserved_israeli = min(max(music_israeli_min, 0), music_limit)
+
+    selected_by_key: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    if reserved_israeli > 0:
+        israeli_entries = _fetch_israeli_musicians_from_wikidata(reserved_israeli)
+        for entry in _sort_by_popularity(_dedupe_entries(israeli_entries)):
+            key = (entry["category_key"], entry["provider"], entry["provider_id"])
+            selected_by_key[key] = entry
+
+    slots_left = music_limit - len(selected_by_key)
+    if slots_left <= 0:
+        return _sort_by_popularity(list(selected_by_key.values()))[:music_limit]
+
+    musicians_target = max((slots_left * 2) // 3, 1)
+    groups_target = max(slots_left - musicians_target, 1)
+    supplemental_wikidata = _dedupe_entries(
+        _fetch_musicians_from_wikidata(musicians_target) + _fetch_musical_groups_from_wikidata(groups_target)
+    )
+    for entry in _sort_by_popularity(supplemental_wikidata):
+        key = (entry["category_key"], entry["provider"], entry["provider_id"])
+        if key in selected_by_key:
+            continue
+        selected_by_key[key] = entry
+        if len(selected_by_key) >= music_limit:
+            break
+
+    slots_left = music_limit - len(selected_by_key)
+    if slots_left > 0:
+        logger.info("Filling remaining %d music rows from IMDb and generic Wikidata music", slots_left)
+        fallback_pool = _dedupe_entries(imdb_music + _fetch_music_from_wikidata(slots_left))
+        for entry in _sort_by_popularity(fallback_pool):
+            key = (entry["category_key"], entry["provider"], entry["provider_id"])
+            if key in selected_by_key:
+                continue
+            selected_by_key[key] = entry
+            if len(selected_by_key) >= music_limit:
+                break
+
+    return _sort_by_popularity(list(selected_by_key.values()))[:music_limit]
 
 
 def _dedupe_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -446,7 +551,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-votes", type=int, default=40, help="Minimum IMDb vote count to include")
     parser.add_argument("--movies-limit", type=int, default=140000)
     parser.add_argument("--tv-limit", type=int, default=110000)
-    parser.add_argument("--music-limit", type=int, default=15000)
+    parser.add_argument("--music-limit", type=int, default=50000)
+    parser.add_argument("--music-israeli-min", type=int, default=1500)
     parser.add_argument("--hobbies-limit", type=int, default=8000)
     return parser.parse_args()
 
@@ -478,21 +584,16 @@ def main() -> None:
         category_limits=category_limits,
     )
 
-    imdb_counts = Counter(entry["category_key"] for entry in imdb_entries)
-    missing_music = max(args.music_limit - imdb_counts.get("music", 0), 0)
-    if missing_music > 0:
-        logger.info("IMDb produced %d music rows; fetching %d additional music rows from Wikidata", imdb_counts.get("music", 0), missing_music)
-        wikidata_music = _fetch_music_from_wikidata(missing_music)
-        imdb_entries.extend(wikidata_music)
-
-        remaining_music = max(args.music_limit - (imdb_counts.get("music", 0) + len(wikidata_music)), 0)
-        if remaining_music > 0:
-            logger.info("Fetching %d additional musician entries from Wikidata", remaining_music)
-            imdb_entries.extend(_fetch_musicians_from_wikidata(remaining_music))
+    non_music_entries = [entry for entry in imdb_entries if entry.get("category_key") != "music"]
+    music_entries = _build_music_catalog_entries(
+        imdb_entries,
+        music_limit=args.music_limit,
+        music_israeli_min=args.music_israeli_min,
+    )
 
     hobbies = _fetch_hobbies_from_wikidata(args.hobbies_limit)
 
-    combined = _dedupe_entries(imdb_entries + hobbies)
+    combined = _dedupe_entries(non_music_entries + music_entries + hobbies)
     _write_jsonl(combined, output_path)
     _write_metadata(output_path, metadata_path, combined, category_limits)
 

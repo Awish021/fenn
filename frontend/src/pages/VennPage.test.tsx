@@ -13,8 +13,7 @@ vi.mock("../hooks/useIsMobile", () => ({ useIsMobile: vi.fn() }));
 
 const mockListCatalogItems = vi.fn();
 const mockListGroups = vi.fn();
-const mockListCategories = vi.fn();
-const mockGetVenn = vi.fn();
+const mockGetGroupVenn = vi.fn();
 const mockDeleteItem = vi.fn();
 const mockLikeCatalogItem = vi.fn();
 const mockUnlikeCatalogItem = vi.fn();
@@ -22,17 +21,15 @@ const mockUnlikeCatalogItem = vi.fn();
 const mockApi: Pick<
   ApiClient,
   | "deleteItem"
-  | "getVenn"
+  | "getGroupVenn"
   | "listCatalogItems"
-  | "listCategories"
   | "listGroups"
   | "likeCatalogItem"
   | "unlikeCatalogItem"
 > = {
   deleteItem: mockDeleteItem,
-  getVenn: mockGetVenn,
+  getGroupVenn: mockGetGroupVenn,
   listCatalogItems: mockListCatalogItems,
-  listCategories: mockListCategories,
   listGroups: mockListGroups,
   likeCatalogItem: mockLikeCatalogItem,
   unlikeCatalogItem: mockUnlikeCatalogItem,
@@ -44,9 +41,9 @@ const mockedUseIsMobile = vi.mocked(useIsMobile);
 
 function renderVennPage() {
   return render(
-    <MemoryRouter initialEntries={["/categories/3/venn?groupId=1"]}>
+    <MemoryRouter initialEntries={["/groups/1/venn/movies"]}>
       <Routes>
-        <Route path="/categories/:categoryId/venn" element={<VennPage />} />
+        <Route path="/groups/:groupId/venn/:categoryKey" element={<VennPage />} />
       </Routes>
     </MemoryRouter>
   );
@@ -55,9 +52,8 @@ function renderVennPage() {
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 beforeEach(() => {
-  mockGetVenn.mockResolvedValue({});
+  mockGetGroupVenn.mockResolvedValue({});
   mockListGroups.mockResolvedValue([{ id: 1, member_limit: 8 }]);
-  mockListCategories.mockResolvedValue([{ id: 3, builtin_key: "movies" }]);
   mockListCatalogItems.mockResolvedValue([]);
   mockDeleteItem.mockResolvedValue(undefined);
   mockLikeCatalogItem.mockResolvedValue({ like_count: 0, liked_by_user: false });
@@ -73,6 +69,11 @@ afterEach(() => {
 });
 
 describe("VennPage catalog search", () => {
+  it("loads venn data using group and category route params", async () => {
+    renderVennPage();
+    await waitFor(() => expect(mockGetGroupVenn).toHaveBeenCalledWith(1, "movies"));
+  });
+
   it("debounces typing before fetching catalog results", async () => {
     renderVennPage();
     await waitFor(() => expect(mockListCatalogItems).toHaveBeenCalledTimes(1));
@@ -81,7 +82,7 @@ describe("VennPage catalog search", () => {
     expect(mockListCatalogItems).toHaveBeenCalledTimes(1);
     await pause(250);
     await waitFor(() => expect(mockListCatalogItems).toHaveBeenCalledTimes(2));
-    expect(mockListCatalogItems).toHaveBeenLastCalledWith("movies", "sun");
+    expect(mockListCatalogItems).toHaveBeenLastCalledWith("movies", "sun", 1, 25);
   });
 
   it("runs a search immediately when the button is clicked", async () => {
@@ -93,8 +94,60 @@ describe("VennPage catalog search", () => {
     await pause(100);
     fireEvent.click(button);
     await waitFor(() => expect(mockListCatalogItems).toHaveBeenCalledTimes(2));
-    expect(mockListCatalogItems).toHaveBeenLastCalledWith("movies", "folk");
+    expect(mockListCatalogItems).toHaveBeenLastCalledWith("movies", "folk", 1, 25);
     await pause(250);
     expect(mockListCatalogItems).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves across pages and resets to page one for a new search", async () => {
+    mockListCatalogItems.mockImplementation(
+      async (_categoryKey: string, _query?: string, page = 1, limit = 25) => {
+        if (page === 1) {
+          return Array.from({ length: limit }, (_, index) => ({
+            category_key: "movies",
+            provider: "test",
+            provider_id: `item-${index + 1}`,
+            title: `Movie ${index + 1}`,
+            subtitle: null,
+            logo_url: "https://cdn.example.com/logo.png",
+            attribution: null,
+            provider_url: null,
+            popularity_score: 0,
+            like_count: 0,
+            liked_by_user: false,
+          }));
+        }
+        if (page === 2) {
+          return [
+            {
+              category_key: "movies",
+              provider: "test",
+              provider_id: "item-26",
+              title: "Movie 26",
+              subtitle: null,
+              logo_url: "https://cdn.example.com/logo.png",
+              attribution: null,
+              provider_url: null,
+              popularity_score: 0,
+              like_count: 0,
+              liked_by_user: false,
+            },
+          ];
+        }
+        return [];
+      }
+    );
+
+    renderVennPage();
+    await waitFor(() => expect(mockListCatalogItems).toHaveBeenCalledWith("movies", "", 1, 25));
+
+    const nextButton = screen.getByRole("button", { name: "Next" });
+    fireEvent.click(nextButton);
+    await waitFor(() => expect(mockListCatalogItems).toHaveBeenCalledWith("movies", "", 2, 25));
+
+    const input = screen.getByPlaceholderText("Search title or ID");
+    fireEvent.change(input, { target: { value: "matrix" } });
+    await pause(250);
+    await waitFor(() => expect(mockListCatalogItems).toHaveBeenLastCalledWith("movies", "matrix", 1, 25));
   });
 });

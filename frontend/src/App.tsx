@@ -24,6 +24,7 @@ export function App() {
         <Route path="groups/:groupId/categories" element={<CategoriesPage />} />
         <Route path="categories/:categoryId/items" element={<ItemsPage />} />
         <Route path="categories/:categoryId/venn" element={<VennPage />} />
+        <Route path="groups/:groupId/venn/:categoryKey" element={<VennPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

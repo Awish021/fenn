@@ -182,8 +182,8 @@ class ApiClient {
     });
   }
 
-  listCategories(groupId: number): Promise<CategoryOut[]> {
-    return this.request<CategoryOut[]>(`/categories?group_id=${groupId}`, "GET");
+  listCategories(): Promise<CategoryOut[]> {
+    return this.request<CategoryOut[]>("/categories", "GET");
   }
 
   createCategory(groupId: number, name: string): Promise<CategoryOut> {
@@ -224,15 +224,21 @@ class ApiClient {
     return this.request<VennResponse>(`/categories/${categoryId}/venn`, "GET");
   }
 
+  getGroupVenn(groupId: number, categoryKey: string): Promise<VennResponse> {
+    return this.request<VennResponse>(`/groups/${groupId}/venn/${encodeURIComponent(categoryKey)}`, "GET");
+  }
+
   listCatalogItems(
     categoryKey: string,
     query?: string,
+    page = 1,
     limit = 25
   ): Promise<CatalogItemOut[]> {
     const params = new URLSearchParams();
     if (query) {
       params.set("q", query);
     }
+    params.set("page", page.toString());
     params.set("limit", limit.toString());
     const queryString = params.toString();
     const path = queryString

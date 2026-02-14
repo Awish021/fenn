@@ -57,6 +57,7 @@ def _catalog_items_via_fts(
     db: Session,
     category_key: str,
     search_term: str,
+    offset: int,
     limit: int,
 ) -> list[CatalogItem] | None:
     bind = db.get_bind()
@@ -76,6 +77,7 @@ def _catalog_items_via_fts(
           AND catalog_items_fts MATCH :match_query
         ORDER BY bm25(catalog_items_fts), catalog_items.popularity_score DESC, catalog_items.title ASC
         LIMIT :limit
+        OFFSET :offset
         """
     )
 
@@ -87,6 +89,7 @@ def _catalog_items_via_fts(
                 {
                     "category_key": category_key,
                     "match_query": match_query,
+                    "offset": offset,
                     "limit": limit,
                 },
             )
@@ -114,18 +117,21 @@ def _catalog_items_via_fts(
 def list_catalog_items(
     category_key: str,
     q: str | None = Query(None, description="Search term"),
+    page: int = Query(1, ge=1),
     limit: int = Query(25, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[CatalogItemOut]:
     _validate_builtin(category_key)
+    offset = (page - 1) * limit
     search_term = _normalize_search_term(q)
     if search_term:
-        fts_items = _catalog_items_via_fts(db, category_key, search_term, limit)
+        fts_items = _catalog_items_via_fts(db, category_key, search_term, offset, limit)
         if fts_items is None:
             items = (
                 _catalog_item_query(db, category_key, search_term)
                 .order_by(CatalogItem.popularity_score.desc(), CatalogItem.title.asc())
+                .offset(offset)
                 .limit(limit)
                 .all()
             )
@@ -135,6 +141,7 @@ def list_catalog_items(
         items = (
             _catalog_item_query(db, category_key, None)
             .order_by(CatalogItem.popularity_score.desc(), CatalogItem.title.asc())
+            .offset(offset)
             .limit(limit)
             .all()
         )
