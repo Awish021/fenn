@@ -1,4 +1,22 @@
 services:
+  backend-migrate:
+    build:
+      context: ./backend
+    environment:
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:3000}
+      DATABASE_URL: sqlite:////data/venndiagram.db
+    volumes:
+      - backend-data:/data
+    command:
+      [
+        "sh",
+        "-c",
+        "alembic -c alembic.ini upgrade head && python alembic/bootstrap.py",
+      ]
+
   backend:
     build:
       context: ./backend
@@ -22,8 +40,24 @@ services:
       timeout: 10s
       retries: 5
       start_period: 5s
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--reload-dir",
+        "/app/app",
+      ]
     volumes:
+      - ./backend:/app
       - backend-data:/data
+    depends_on:
+      backend-migrate:
+        condition: service_completed_successfully
 
   frontend:
     build:
@@ -34,6 +68,13 @@ services:
       - backend
     environment:
       - VITE_PROXY_TARGET=http://backend:8000
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=300
+    command: ["sh", "-c", "npm install && npm run dev -- --host 0.0.0.0 --port 3000"]
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
 
 volumes:
   backend-data:
+  frontend-node-modules:
